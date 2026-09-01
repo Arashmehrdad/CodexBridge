@@ -8,7 +8,7 @@ from soma.public_gateway_inventory import PUBLIC_GATEWAY_NAMES
 from soma.public_projection_contract import DEFAULT_PUBLIC_BYTE_BUDGETS
 
 
-CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v31"
+CF1_GATEWAY_OPERATION_INVENTORY_VERSION: Final[str] = "cf1.3.gateway-operations.v32"
 
 
 class RequestEchoBehavior(str, Enum):
@@ -1556,7 +1556,7 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         "repo_query",
         ("search_fast",),
         "soma.server:repo_query -> soma.repo_reader:search_repo_fast",
-        "bounded navigation-only tracked repository lexical search",
+        "bounded navigation-only repository lexical search",
         json_decode_cost=JsonDecodeCost.BOUNDED_OBJECT,
         default_response_bytes=16 * 1024,
         maximum_response_bytes=64 * 1024,
@@ -1564,9 +1564,10 @@ PUBLIC_GATEWAY_OPERATION_INVENTORY: Final[
         default_item_limit=100,
         maximum_item_limit=500,
         notes=(
-            "Fast tracked search delegates to Git grep without recursive filesystem walking "
-            "or corpus hashing. Results are navigation-only and exact source must be reopened "
-            "before source-dependent conclusions."
+            "scope=tracked delegates to Git grep without recursive filesystem walking or "
+            "corpus hashing; explicit working_tree/directory/all scopes use bounded ripgrep "
+            "with hard heavy-root exclusions and an end-to-end timeout. Results are "
+            "navigation-only and exact source must be reopened before source-dependent conclusions."
         ),
     ),
     _entry(

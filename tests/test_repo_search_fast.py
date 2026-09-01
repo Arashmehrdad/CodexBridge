@@ -273,6 +273,136 @@ def test_fast_search_never_walks_or_hashes_the_repository(
     assert result["count"] == 1
 
 
+def test_fast_working_tree_includes_untracked_and_excludes_ignored_heavy_roots(
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(
+        tmp_path,
+        {
+            ".gitignore": "ignored.py\n",
+            "tracked.py": "needle tracked\n",
+        },
+    )
+    _write(repo / "untracked.py", "needle untracked\n")
+    _write(repo / "ignored.py", "needle ignored\n")
+    _write(repo / "data" / "heavy.txt", "needle heavy\n")
+
+    result = search_repo_fast(repo, "needle", scope="working_tree")
+
+    assert result["ok"] is True
+    assert result["engine"] == "ripgrep"
+    assert [hit["path"] for hit in result["hits"]] == ["tracked.py", "untracked.py"]
+    rendered = json.dumps(result)
+    assert "ignored.py" not in rendered
+    assert "data/heavy.txt" not in rendered
+    assert "data" in result["excluded_roots"]
+
+
+def test_fast_all_includes_ignored_safe_file_but_excludes_heavy_and_secret_roots(
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(
+        tmp_path,
+        {
+            ".gitignore": "ignored.py\n",
+            "tracked.py": "needle tracked\n",
+        },
+    )
+    _write(repo / "ignored.py", "needle ignored\n")
+    _write(repo / "data" / "heavy.txt", "needle heavy\n")
+    _write(repo / "secrets" / "private.txt", "needle secret\n")
+
+    result = search_repo_fast(repo, "needle", scope="all")
+
+    assert result["ok"] is True
+    paths = [hit["path"] for hit in result["hits"]]
+    assert paths == ["ignored.py", "tracked.py"]
+    rendered = json.dumps(result)
+    assert "data/heavy.txt" not in rendered
+    assert "secrets/private.txt" not in rendered
+
+
+def test_fast_directory_scope_searches_explicit_ignored_safe_subtree(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path, {".gitignore": "scratch/\n", "tracked.py": "other\n"})
+    _write(repo / "scratch" / "note.txt", "needle explicit directory\n")
+
+    result = search_repo_fast(repo, "needle", scope="directory", directory="scratch")
+
+    assert result["ok"] is True
+    assert result["engine"] == "ripgrep"
+    assert [hit["path"] for hit in result["hits"]] == ["scratch/note.txt"]
+
+    with pytest.raises(ValueError):
+        search_repo_fast(repo, "needle", scope="directory")
+    with pytest.raises(ValueError):
+        search_repo_fast(repo, "needle", scope="directory", directory="../outside")
+
+
+def test_fast_working_tree_files_and_count_modes_are_exact(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path, {"a.py": "needle\nneedle\n"})
+    _write(repo / "b.py", "needle\n")
+
+    counted = search_repo_fast(repo, "needle", scope="working_tree", result_mode="count")
+    files = search_repo_fast(repo, "needle", scope="working_tree", result_mode="files")
+
+    assert counted["ok"] is True
+    assert counted["count"] == 3
+    assert counted["match_count"] == 3
+    assert counted["files_matched"] == 2
+    assert files["files"] == ["a.py", "b.py"]
+    assert files["count"] == 2
+    assert files["files_matched"] == 2
+
+
+def test_fast_rg_timeout_and_unavailable_are_structured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _make_repo(tmp_path, {"module.py": "needle\n"})
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(["rg"], 0.1)
+
+    monkeypatch.setattr(repo_reader, "_run_fast_rg", timeout)
+    timed = search_repo_fast(repo, "needle", scope="working_tree", budget_ms=100)
+    assert timed["ok"] is False
+    assert timed["status"] == "search_timeout"
+    assert timed["timeout"] is True
+
+    monkeypatch.undo()
+    monkeypatch.setattr(repo_reader, "_fast_rg_executable", lambda: "")
+    unavailable = search_repo_fast(repo, "needle", scope="working_tree")
+    assert unavailable["ok"] is False
+    assert unavailable["status"] == "rg_unavailable"
+
+
+def test_fast_rg_discovery_uses_bounded_vscode_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(repo_reader.shutil, "which", lambda _name: None)
+    local = tmp_path / "local"
+    candidate = (
+        local
+        / "Programs"
+        / "Microsoft VS Code"
+        / "versioned"
+        / "resources"
+        / "app"
+        / "node_modules.asar.unpacked"
+        / "@vscode"
+        / "ripgrep-universal"
+        / "bin"
+        / "win32-x64"
+        / "rg.exe"
+    )
+    candidate.parent.mkdir(parents=True)
+    candidate.write_bytes(b"fixture")
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+
+    assert repo_reader._fast_rg_executable() == str(candidate)
+
+
 def test_fast_search_scope_and_gateway_model_are_strict() -> None:
     adapter = TypeAdapter(RepoQueryRequest)
     request = adapter.validate_python(
@@ -289,15 +419,40 @@ def test_fast_search_scope_and_gateway_model_are_strict() -> None:
     assert request.context_lines == 0
     assert request.response_budget_bytes == 16 * 1024
 
+    assert adapter.validate_python(
+        {
+            "operation": "search_fast",
+            "repo_name": "repo",
+            "query": "needle",
+            "scope": "working_tree",
+        }
+    ).scope == "working_tree"
+    assert adapter.validate_python(
+        {
+            "operation": "search_fast",
+            "repo_name": "repo",
+            "query": "needle",
+            "scope": "all",
+        }
+    ).scope == "all"
     with pytest.raises(ValidationError):
         adapter.validate_python(
             {
                 "operation": "search_fast",
                 "repo_name": "repo",
                 "query": "needle",
-                "scope": "all",
+                "scope": "directory",
             }
         )
+    assert adapter.validate_python(
+        {
+            "operation": "search_fast",
+            "repo_name": "repo",
+            "query": "needle",
+            "scope": "directory",
+            "directory": "src",
+        }
+    ).directory == "src"
     with pytest.raises(ValidationError):
         adapter.validate_python(
             {

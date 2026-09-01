@@ -90,7 +90,7 @@ def test_cf1_gateway_operation_inventory_is_versioned_and_exact() -> None:
     validate_gateway_operation_inventory()
     grouped = operation_inventory_by_gateway()
 
-    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == ("cf1.3.gateway-operations.v31")
+    assert CF1_GATEWAY_OPERATION_INVENTORY_VERSION == ("cf1.3.gateway-operations.v32")
     assert set(grouped) == set(PUBLIC_GATEWAY_NAMES)
     assert set(operation_names_by_gateway()) == set(PUBLIC_GATEWAY_NAMES)
 
@@ -362,6 +362,14 @@ def test_high_cost_operations_preserve_current_behavioral_baseline() -> None:
     assert search.pagination is PaginationBehavior.CURSOR
     assert "exact-file scope" in search.notes
     assert "timeout/partial-result reporting" in search.notes
+
+    fast_search = _entry_for("repo_query", "search_fast")
+    assert fast_search.default_response_bytes == 16 * 1024
+    assert fast_search.maximum_response_bytes == 64 * 1024
+    assert fast_search.pagination is PaginationBehavior.LIMIT_ONLY
+    assert "scope=tracked" in fast_search.notes
+    assert "working_tree/directory/all" in fast_search.notes
+    assert "navigation-only" in fast_search.notes
 
     docker_capabilities = _entry_for("docker_query", "capabilities")
     assert docker_capabilities.default_response_bytes == 12 * 1024

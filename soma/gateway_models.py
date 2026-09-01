@@ -1055,7 +1055,7 @@ class RepoFastSearchQuery(GatewayModel):
     operation: Literal["search_fast"]
     repo_name: str = Field(min_length=1, max_length=128)
     query: str = Field(min_length=1, max_length=10_000)
-    scope: Literal["tracked"] = "tracked"
+    scope: Literal["tracked", "working_tree", "directory", "all"] = "tracked"
     match_mode: Literal["literal", "regex"] = "literal"
     case_sensitive: bool = False
     directory: str = Field(default="", max_length=1024)
@@ -1065,6 +1065,12 @@ class RepoFastSearchQuery(GatewayModel):
     result_mode: Literal["matches", "files", "count"] = "matches"
     budget_ms: int = Field(default=5_000, ge=100, le=30_000)
     response_budget_bytes: int = Field(default=16 * 1024, ge=4 * 1024, le=64 * 1024)
+
+    @model_validator(mode="after")
+    def validate_fast_scope(self) -> "RepoFastSearchQuery":
+        if self.scope == "directory" and not self.directory.strip():
+            raise ValueError("scope=directory requires directory")
+        return self
 
 
 class RepoRecentFilesQuery(GatewayModel):

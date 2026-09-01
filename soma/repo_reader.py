@@ -725,6 +725,22 @@ def _stale_file_response(path: str, sha256: str, size: int, total_lines: int) ->
 
 DEFAULT_FAST_SEARCH_RESPONSE_BYTES = 16 * 1024
 MAX_FAST_SEARCH_RESPONSE_BYTES = 64 * 1024
+_FAST_RG_HEAVY_ROOTS: frozenset[str] = frozenset(
+    {
+        "cache",
+        "caches",
+        "checkpoints",
+        "data",
+        "dataset",
+        "datasets",
+        "logs",
+        "output",
+        "outputs",
+        "temp",
+        "tmp",
+        "weights",
+    }
+)
 _FAST_SEARCH_NOTICE = (
     "Fast lexical search results are navigation evidence only; reopen exact source "
     "with repo_query(read_files) before relying on source content."
@@ -746,6 +762,284 @@ def _run_fast_git(repo_root: Path, args: list[str], deadline: float) -> subproce
         env=env,
         check=False,
     )
+
+
+def _fast_rg_executable() -> str:
+    discovered = shutil.which("rg")
+    if discovered:
+        return discovered
+
+    install_roots: list[Path] = []
+    local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        programs = Path(local_app_data) / "Programs"
+        install_roots.extend(
+            [programs / "Microsoft VS Code", programs / "Microsoft VS Code Insiders"]
+        )
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            install_roots.extend(
+                [Path(value) / "Microsoft VS Code", Path(value) / "Microsoft VS Code Insiders"]
+            )
+
+    suffix = Path(
+        "resources/app/node_modules.asar.unpacked/@vscode/"
+        "ripgrep-universal/bin/win32-x64/rg.exe"
+    )
+    for root in install_roots:
+        direct = root / suffix
+        if direct.is_file():
+            return str(direct)
+        try:
+            versioned = sorted(root.glob(f"*/{suffix.as_posix()}"), reverse=True)
+        except OSError:
+            versioned = []
+        for candidate in versioned:
+            if candidate.is_file():
+                return str(candidate)
+    return ""
+
+
+def _run_fast_rg(repo_root: Path, args: list[str], deadline: float) -> subprocess.CompletedProcess[bytes]:
+    executable = _fast_rg_executable()
+    if not executable:
+        raise FileNotFoundError("ripgrep executable is not available")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired([executable, *args], 0)
+    return subprocess.run(
+        [executable, *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=False,
+        timeout=max(0.001, remaining),
+        check=False,
+    )
+
+
+def _fast_rg_exclusion_args() -> list[str]:
+    args: list[str] = []
+    for blocked in sorted(_BLOCKED_NAMES | _FAST_RG_HEAVY_ROOTS):
+        args.extend(["--glob", f"!**/{blocked}/**"])
+    for extension in sorted(_BLOCKED_EXTENSIONS):
+        args.extend(["--glob", f"!**/*{extension}"])
+    for blocked_file in sorted(_BLOCKED_FILE_NAMES):
+        args.extend(["--glob", f"!**/{blocked_file}"])
+    args.extend(["--glob", "!**/.env*"])
+    return args
+
+
+def _fast_rg_common_args(
+    query: str,
+    *,
+    scope: str,
+    match_mode: str,
+    case_sensitive: bool,
+    file_patterns: list[str],
+) -> list[str]:
+    args = [
+        "--color",
+        "never",
+        "--no-messages",
+        "--max-filesize",
+        str(MAX_FILE_BYTES),
+    ]
+    if match_mode == "literal":
+        args.append("--fixed-strings")
+    if not case_sensitive:
+        args.append("--ignore-case")
+    if scope in {"directory", "all"}:
+        args.extend(["--no-ignore", "--hidden"])
+    args.extend(_fast_rg_exclusion_args())
+    for pattern in file_patterns:
+        args.extend(["--glob", pattern])
+    args.extend(["--", query])
+    return args
+
+
+def _fast_rg_target(directory: str) -> str:
+    return directory or "."
+
+
+def _fast_rg_relative_path(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = value
+    relative = text.replace("\\", "/")
+    if relative.startswith("./"):
+        relative = relative[2:]
+    return relative
+
+
+def _fast_search_parse_rg_matches(raw: bytes) -> list[dict[str, object]]:
+    hits: list[dict[str, object]] = []
+    for raw_line in raw.splitlines():
+        try:
+            event = json.loads(raw_line.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "match":
+            continue
+        data = event.get("data") or {}
+        path_data = data.get("path") or {}
+        relative = _fast_rg_relative_path(str(path_data.get("text") or ""))
+        submatches = data.get("submatches") or []
+        column = 0
+        if submatches:
+            try:
+                column = int(submatches[0].get("start", 0)) + 1
+            except (AttributeError, TypeError, ValueError):
+                column = 0
+        text = str((data.get("lines") or {}).get("text") or "").rstrip("\r\n")
+        hits.append(
+            {
+                "path": relative,
+                "line": int(data.get("line_number") or 0),
+                "column": column,
+                "snippet": _redact_text(text[:_SEARCH_SNIPPET_CHARS]),
+            }
+        )
+    return hits
+
+
+def _fast_search_parse_rg_counts(raw: bytes) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in raw.splitlines():
+        parts = record.split(b"\x00", 1)
+        if len(parts) != 2:
+            continue
+        path = _fast_rg_relative_path(parts[0])
+        try:
+            count = int(parts[1].decode("ascii", errors="strict"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        counts[path] = count
+    return counts
+
+
+def _fast_search_rg_into_result(
+    repo_root: Path,
+    base_result: dict,
+    query: str,
+    *,
+    scope: str,
+    match_mode: str,
+    case_sensitive: bool,
+    directory: str,
+    patterns: list[str],
+    max_results: int,
+    context_lines: int,
+    result_mode: str,
+    deadline: float,
+) -> None:
+    target = _fast_rg_target(directory)
+    common = _fast_rg_common_args(
+        query,
+        scope=scope,
+        match_mode=match_mode,
+        case_sensitive=case_sensitive,
+        file_patterns=patterns,
+    )
+    base_result["engine"] = "ripgrep"
+
+    if result_mode == "count":
+        completed = _run_fast_rg(repo_root, ["--count", "--null", *common, target], deadline)
+        if completed.returncode not in {0, 1}:
+            base_result.update(
+                ok=False,
+                status="search_failed",
+                fresh=False,
+                error=completed.stderr.decode("utf-8", errors="replace").strip()[:1000],
+            )
+            return
+        counts = {
+            path: count
+            for path, count in _fast_search_parse_rg_counts(completed.stdout).items()
+            if _fast_search_path_allowed(repo_root, path, patterns)
+        }
+        base_result["match_count"] = sum(counts.values())
+        base_result["files_matched"] = len(counts)
+        base_result["count"] = int(base_result["match_count"])
+        return
+
+    if result_mode == "files":
+        completed = _run_fast_rg(
+            repo_root,
+            ["--files-with-matches", "--null", *common, target],
+            deadline,
+        )
+        if completed.returncode not in {0, 1}:
+            base_result.update(
+                ok=False,
+                status="search_failed",
+                fresh=False,
+                error=completed.stderr.decode("utf-8", errors="replace").strip()[:1000],
+            )
+            return
+        files = sorted(
+            path
+            for path in (
+                _fast_rg_relative_path(raw)
+                for raw in completed.stdout.split(b"\x00")
+                if raw
+            )
+            if _fast_search_path_allowed(repo_root, path, patterns)
+        )
+        base_result["files_matched"] = len(files)
+        base_result["files"] = files[:max_results]
+        base_result["count"] = len(base_result["files"])
+        base_result["match_count"] = len(files)
+        if len(files) > max_results:
+            base_result["truncated"] = True
+            base_result["has_more"] = True
+            base_result["truncation_reason"] = "max_results"
+        return
+
+    completed = _run_fast_rg(
+        repo_root,
+        ["--json", "--max-count", str(max_results + 1), *common, target],
+        deadline,
+    )
+    if completed.returncode not in {0, 1}:
+        base_result.update(
+            ok=False,
+            status="search_failed",
+            fresh=False,
+            error=completed.stderr.decode("utf-8", errors="replace").strip()[:1000],
+        )
+        return
+    parsed_hits = _fast_search_parse_rg_matches(completed.stdout)
+    allowed_paths: dict[str, bool] = {}
+    all_hits: list[dict[str, object]] = []
+    for hit in parsed_hits:
+        path = str(hit["path"])
+        allowed = allowed_paths.get(path)
+        if allowed is None:
+            allowed = _fast_search_path_allowed(repo_root, path, patterns)
+            allowed_paths[path] = allowed
+        if allowed:
+            all_hits.append(hit)
+    all_hits.sort(
+        key=lambda hit: (
+            str(hit["path"]),
+            int(hit["line"]),
+            int(hit["column"]),
+        )
+    )
+    base_result["files_matched"] = len({str(hit["path"]) for hit in all_hits})
+    truncated = len(all_hits) > max_results
+    hits = all_hits[:max_results]
+    _fast_search_add_context(repo_root, hits, context_lines)
+    base_result["hits"] = hits
+    base_result["count"] = len(hits)
+    base_result["match_count"] = len(hits)
+    base_result["match_count_complete"] = not truncated
+    if truncated:
+        base_result["truncated"] = True
+        base_result["has_more"] = True
+        base_result["truncation_reason"] = "max_results"
 
 
 def _fast_search_patterns(file_patterns: list[str] | None) -> list[str]:
@@ -1057,11 +1351,13 @@ def search_repo_fast(
     budget_ms: int = 5_000,
     response_budget_bytes: int = DEFAULT_FAST_SEARCH_RESPONSE_BYTES,
 ) -> dict:
-    """Fast navigation-only lexical search over Git-tracked repository files."""
+    """Fast navigation-only lexical search over an explicitly selected repository scope."""
     if not query or not query.strip():
         raise ValueError("query must not be empty")
-    if scope != "tracked":
-        raise ValueError("search_repo_fast currently supports scope=tracked only")
+    if scope not in {"tracked", "working_tree", "directory", "all"}:
+        raise ValueError("scope must be tracked, working_tree, directory, or all")
+    if scope == "directory" and not directory.strip():
+        raise ValueError("scope=directory requires directory")
     if match_mode not in {"literal", "regex"}:
         raise ValueError("match_mode must be literal or regex")
     if result_mode not in {"matches", "files", "count"}:
@@ -1089,13 +1385,16 @@ def search_repo_fast(
         "timeout": False,
         "repo_name": "",
         "query": query,
-        "scope": "tracked",
+        "scope": scope,
         "match_mode": match_mode,
         "case_sensitive": case_sensitive,
         "directory": directory,
         "file_patterns": patterns,
         "result_mode": result_mode,
-        "engine": "git-grep",
+        "engine": "git-grep" if scope == "tracked" else "ripgrep",
+        "excluded_roots": []
+        if scope == "tracked"
+        else sorted(_BLOCKED_NAMES | _FAST_RG_HEAVY_ROOTS),
         "navigation_only": True,
         "notice": _FAST_SEARCH_NOTICE,
         "git_head": "",
@@ -1130,6 +1429,24 @@ def search_repo_fast(
             base_result["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
             return _fast_search_finalize(base_result, response_budget_bytes)
         base_result["git_head"] = head
+        if scope != "tracked":
+            _fast_search_rg_into_result(
+                repo_root,
+                base_result,
+                query,
+                scope=scope,
+                match_mode=match_mode,
+                case_sensitive=case_sensitive,
+                directory=directory,
+                patterns=patterns,
+                max_results=max_results,
+                context_lines=context_lines,
+                result_mode=result_mode,
+                deadline=deadline,
+            )
+            base_result["duration_ms"] = round((time.monotonic() - started) * 1000, 2)
+            return _fast_search_finalize(base_result, response_budget_bytes)
+
         scope_args = _fast_search_scope_args(directory)
 
         if result_mode in {"files", "count"}:
@@ -1225,7 +1542,7 @@ def search_repo_fast(
         base_result["error"] = "Fast repository search exceeded its end-to-end budget"
     except OSError as exc:
         base_result["ok"] = False
-        base_result["status"] = "git_unavailable"
+        base_result["status"] = "git_unavailable" if scope == "tracked" else "rg_unavailable"
         base_result["fresh"] = False
         base_result["error"] = str(exc)[:1000]
 
