@@ -256,6 +256,47 @@ def test_fast_search_timeout_is_end_to_end_structured(
     assert result["truncation_reason"] == "timeout"
 
 
+def test_legacy_search_text_budget_covers_snapshot_preparation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _make_repo(
+        tmp_path,
+        {
+            "a.md": "needle first\n",
+            "b.md": "needle second\n",
+        },
+    )
+    clock = {"now": 10.0}
+    hashed: list[str] = []
+    real_hash = repo_reader._sha256_file
+
+    monkeypatch.setattr(repo_reader.time, "monotonic", lambda: clock["now"])
+
+    def slow_hash(path: Path) -> str:
+        hashed.append(path.name)
+        clock["now"] += 0.15
+        return real_hash(path)
+
+    monkeypatch.setattr(repo_reader, "_sha256_file", slow_hash)
+
+    result = repo_reader.search_repo_text(
+        repo,
+        "needle",
+        file_patterns=["*.md"],
+        budget_ms=100,
+        response_budget_bytes=16 * 1024,
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "search_timeout"
+    assert result["timeout"] is True
+    assert result["fresh"] is False
+    assert result["truncation_reason"] == "timeout"
+    assert result["next_cursor"] == ""
+    assert hashed == ["a.md"]
+    assert result["duration_ms"] == pytest.approx(150.0)
+
+
 def test_fast_search_never_walks_or_hashes_the_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

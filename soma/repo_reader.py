@@ -1725,6 +1725,37 @@ def _search_repo_text_bounded(
         1_024, min(int(response_budget_bytes), MAX_SEARCH_RESPONSE_BYTES)
     )
     started = time.monotonic()
+    deadline = started + budget_ms / 1000
+
+    def preparation_timeout(files_examined: int = 0) -> dict | None:
+        if time.monotonic() < deadline:
+            return None
+        result = _search_error_response(
+            query,
+            directory,
+            file_path,
+            case_sensitive,
+            max_results,
+            budget_ms,
+            "search_timeout",
+            "Search timed out before snapshot preparation completed",
+            started,
+        )
+        result.update(
+            {
+                "timeout": True,
+                "truncated": True,
+                "truncation_reason": "timeout",
+                "files_examined": files_examined,
+                "response_budget_bytes": response_budget_bytes,
+                "recommended_action": "Narrow the directory/query or use search_fast for lexical navigation.",
+            }
+        )
+        result["response_bytes"] = len(
+            json.dumps(result, separators=(",", ":")).encode("utf-8")
+        )
+        return result
+
     if file_path:
         target = _resolve_and_validate(repo_root, file_path)
         if not target.is_file() or target.is_symlink():
@@ -1736,14 +1767,23 @@ def _search_repo_text_bounded(
             raise ValueError(f"Not a directory: {directory}")
         candidates = []
         for dirpath, dirnames, filenames in os.walk(base_abs):
+            timeout_result = preparation_timeout()
+            if timeout_result is not None:
+                return timeout_result
             current = Path(dirpath)
-            dirnames[:] = [
-                name
-                for name in dirnames
-                if _path_is_allowed(repo_root, current / name)
-                and not (current / name).is_symlink()
-            ]
+            allowed_dirnames: list[str] = []
+            for name in dirnames:
+                timeout_result = preparation_timeout()
+                if timeout_result is not None:
+                    return timeout_result
+                child_dir = current / name
+                if _path_is_allowed(repo_root, child_dir) and not child_dir.is_symlink():
+                    allowed_dirnames.append(name)
+            dirnames[:] = allowed_dirnames
             for filename in sorted(filenames):
+                timeout_result = preparation_timeout()
+                if timeout_result is not None:
+                    return timeout_result
                 child = current / filename
                 if not _path_is_allowed(repo_root, child) or child.is_symlink():
                     continue
@@ -1751,11 +1791,20 @@ def _search_repo_text_bounded(
                     continue
                 candidates.append(child)
         candidates.sort(key=lambda item: _posix_relative(repo_root, item))
+        timeout_result = preparation_timeout()
+        if timeout_result is not None:
+            return timeout_result
 
     file_entries: list[dict[str, str]] = []
     searchable: list[Path] = []
     for candidate in candidates:
+        timeout_result = preparation_timeout(len(searchable))
+        if timeout_result is not None:
+            return timeout_result
         if _is_binary(candidate):
+            timeout_result = preparation_timeout(len(searchable))
+            if timeout_result is not None:
+                return timeout_result
             continue
         try:
             stat = candidate.stat()
@@ -1764,12 +1813,18 @@ def _search_repo_text_bounded(
             digest = _sha256_file(candidate)
         except OSError:
             continue
+        timeout_result = preparation_timeout(len(searchable))
+        if timeout_result is not None:
+            return timeout_result
         relative = _posix_relative(repo_root, candidate)
         file_entries.append({"path": relative, "sha256": digest})
         searchable.append(candidate)
     snapshot_sha256 = hashlib.sha256(
         json.dumps(file_entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+    timeout_result = preparation_timeout(len(searchable))
+    if timeout_result is not None:
+        return timeout_result
     cursor_state: dict | None = None
     if cursor:
         try:
@@ -1799,7 +1854,6 @@ def _search_repo_text_bounded(
         file_index = 0
         start_line = 1
 
-    deadline = started + budget_ms / 1000
     flags = 0 if case_sensitive else re.IGNORECASE
     pattern = re.compile(re.escape(query), flags)
     hits: list[dict[str, object]] = []
