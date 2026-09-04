@@ -51,8 +51,10 @@ def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
 
 def test_repo_query_metadata_prefers_fast_lexical_navigation() -> None:
     description = PUBLIC_TOOL_METADATA["repo_query"].description
-    assert "operation=search_fast by default" in description
-    assert "search_text only when snapshot/cursor" in description
+    assert "search_fast for lexical" in description
+    assert "search_text only for snapshot/cursor" in description
+    assert "do not infer research relationships/dependencies" in description
+    assert "use research_map_query" in description
 
 
 def test_run_and_task_query_descriptions_do_not_cross_route() -> None:
@@ -118,9 +120,12 @@ def test_skill_action_metadata_matches_mutating_lifecycle_semantics() -> None:
 
 def test_research_map_query_metadata_is_strictly_read_only() -> None:
     query = PUBLIC_TOOL_METADATA["research_map_query"]
-    assert "read-only health, coverage, exact reviewed relations" in query.description
-    assert "verified published-generation semantic search" in query.description
-    assert "never sync, rebuild, create sidecars" in query.description
+    assert "research relationships/dependencies, related work" in query.description
+    assert "supporting/contradicting experiments" in query.description
+    assert "Use search first for discovery" in query.description
+    assert "relation for exact reviewed relations" in query.description
+    assert "health/coverage and IDs" in query.description
+    assert "reopen exact Markdown" in query.description
     assert dict(query.annotations) == {
         "readOnlyHint": True,
         "destructiveHint": False,

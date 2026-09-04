@@ -585,11 +585,11 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "repo_query",
             title="Inspect repository",
             description=(
-                "Use this when you need repository evidence. For ordinary lexical "
-                "find/where/mentions searches, use operation=search_fast by default. "
-                "Use search_text only when snapshot/cursor continuation semantics are "
-                "specifically required. Do not use it to preview, apply, or commit "
-                "changes."
+                "Use this when you need repository evidence. Use search_fast for lexical "
+                "find/where/mentions and search_text only for snapshot/cursor semantics. "
+                "When Research Map exists, do not infer research relationships/"
+                "dependencies with lexical search; use research_map_query. Never preview/"
+                "apply/commit changes."
             ),
             invoking="Inspecting repository...",
             invoked="Repository inspection ready",
@@ -649,10 +649,10 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "research_map_query",
             title="Inspect research map",
             description=(
-                "Use this when you need read-only health, coverage, exact reviewed "
-                "relations, verified published-generation semantic search, or mechanical "
-                "sidecar authoring/ID rules for one scoped project. Queries never sync, "
-                "rebuild, create sidecars, choose materiality, or mutate the published map."
+                "Use this when you need research relationships/dependencies, related work, "
+                "supporting/contradicting experiments, or prior-iteration links. Use search "
+                "first for discovery and relation for exact reviewed relations. Provides "
+                "health/coverage and IDs; reopen exact Markdown before relying on content."
             ),
             invoking="Inspecting research map...",
             invoked="Research map inspection ready",

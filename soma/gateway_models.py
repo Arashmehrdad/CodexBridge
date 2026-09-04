@@ -1162,7 +1162,12 @@ class ResearchMapCoverageQuery(GatewayModel):
 
 
 class ResearchMapRelationQuery(GatewayModel):
-    operation: Literal["relation"]
+    operation: Literal["relation"] = Field(
+        description=(
+            "Use for an exact reviewed relation when relation_id is already known or "
+            "selected from Research Map search results."
+        )
+    )
     project_id: str = Field(min_length=1, max_length=128)
     repo_name: str = Field(min_length=1, max_length=128)
     relation_id: str = Field(pattern=r"^rel_[A-Fa-f0-9]{64}$")
@@ -1176,7 +1181,12 @@ class ResearchMapRelationQuery(GatewayModel):
 
 
 class ResearchMapSearchQuery(GatewayModel):
-    operation: Literal["search"]
+    operation: Literal["search"] = Field(
+        description=(
+            "Default first operation for research relationship/dependency/related-work "
+            "discovery in a mapped project; use before lexical repository search."
+        )
+    )
     project_id: str = Field(min_length=1, max_length=128)
     repo_name: str = Field(min_length=1, max_length=128)
     query: str = Field(min_length=1, max_length=10_000)

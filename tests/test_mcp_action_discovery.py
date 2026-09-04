@@ -1411,6 +1411,25 @@ def test_all_mcp_action_output_schemas_are_json_serializable_and_valid() -> None
         Draft202012Validator.check_schema(action["outputSchema"])
 
 
+def test_research_map_discovery_contract_prefers_map_before_repo_search() -> None:
+    actions = {action["name"]: action for action in discovered_actions()}
+    action = actions["research_map_query"]
+    assert "research relationships/dependencies, related work" in action["description"]
+    schema = action["inputSchema"]
+    branches = {
+        branch["properties"]["operation"]["const"]: branch
+        for branch in schema["oneOf"]
+    }
+    search = branches["search"]["properties"]["operation"]
+    relation = branches["relation"]["properties"]["operation"]
+    assert (
+        "Default first operation for research relationship/dependency"
+        in search["description"]
+    )
+    assert "before lexical repository search" in search["description"]
+    assert "exact reviewed relation" in relation["description"]
+
+
 def test_realistic_outputs_validate_against_public_action_output_schemas() -> None:
     actions = {action["name"]: action for action in discovered_actions()}
 

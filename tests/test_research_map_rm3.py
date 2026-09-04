@@ -14,6 +14,19 @@ from soma.research_map import canonical_text_sha256, relation_id
 from soma.research_map.gateway import research_map_query_gateway
 
 
+def test_rm3_query_schema_routes_relationship_discovery_through_map() -> None:
+    schema = TypeAdapter(ResearchMapQueryRequest).json_schema()
+    search = schema["$defs"]["ResearchMapSearchQuery"]["properties"]["operation"]
+    relation = schema["$defs"]["ResearchMapRelationQuery"]["properties"]["operation"]
+    assert (
+        "Default first operation for research relationship/dependency"
+        in search["description"]
+    )
+    assert "before lexical repository search" in search["description"]
+    assert "exact reviewed relation" in relation["description"]
+    assert "Research Map search results" in relation["description"]
+
+
 def _manifest(repo: Path) -> None:
     (repo / "soma.project.json").write_text(
         json.dumps(
