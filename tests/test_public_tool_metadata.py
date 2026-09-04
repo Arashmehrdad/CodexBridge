@@ -49,6 +49,12 @@ def test_machine_mutation_routing_is_explicit_and_non_overlapping() -> None:
     assert "local-machine operations, use run_start" in ssh_action.description
 
 
+def test_repo_query_metadata_prefers_fast_lexical_navigation() -> None:
+    description = PUBLIC_TOOL_METADATA["repo_query"].description
+    assert "operation=search_fast by default" in description
+    assert "search_text only when snapshot/cursor" in description
+
+
 def test_run_and_task_query_descriptions_do_not_cross_route() -> None:
     run_query = PUBLIC_TOOL_METADATA["run_query"].description
     task_query = PUBLIC_TOOL_METADATA["task_query"].description

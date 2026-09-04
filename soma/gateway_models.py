@@ -1030,7 +1030,12 @@ class RepoReadFilesQuery(GatewayModel):
 
 
 class RepoSearchTextQuery(GatewayModel):
-    operation: Literal["search_text"]
+    operation: Literal["search_text"] = Field(
+        description=(
+            "Snapshot/cursor evidence search only. Do not use for ordinary lexical "
+            "navigation; prefer search_fast."
+        )
+    )
     repo_name: str = Field(min_length=1, max_length=128)
     query: str = Field(min_length=1, max_length=10_000)
     directory: str = Field(default="", max_length=1024)
@@ -1052,7 +1057,12 @@ class RepoSearchTextQuery(GatewayModel):
 
 
 class RepoFastSearchQuery(GatewayModel):
-    operation: Literal["search_fast"]
+    operation: Literal["search_fast"] = Field(
+        description=(
+            "Default operation for ordinary lexical find/where/mentions repository "
+            "navigation."
+        )
+    )
     repo_name: str = Field(min_length=1, max_length=128)
     query: str = Field(min_length=1, max_length=10_000)
     scope: Literal["tracked", "working_tree", "directory", "all"] = "tracked"

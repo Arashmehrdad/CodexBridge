@@ -585,11 +585,11 @@ PUBLIC_TOOL_METADATA: Final[Mapping[str, PublicToolMetadata]] = MappingProxyType
             "repo_query",
             title="Inspect repository",
             description=(
-                "Use this when you need to inspect or search a repository (repo) or "
-                "repository evidence: current status, files, audit documents, source "
-                "text, diffs, history, commit ranges, patch status, or the current state "
-                "of an interrupted repository task. Do not use it to preview, apply, or "
-                "commit changes."
+                "Use this when you need repository evidence. For ordinary lexical "
+                "find/where/mentions searches, use operation=search_fast by default. "
+                "Use search_text only when snapshot/cursor continuation semantics are "
+                "specifically required. Do not use it to preview, apply, or commit "
+                "changes."
             ),
             invoking="Inspecting repository...",
             invoked="Repository inspection ready",

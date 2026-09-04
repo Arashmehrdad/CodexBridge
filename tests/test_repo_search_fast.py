@@ -460,6 +460,12 @@ def test_fast_search_scope_and_gateway_model_are_strict() -> None:
     assert request.context_lines == 0
     assert request.response_budget_bytes == 16 * 1024
 
+    schema = adapter.json_schema()
+    fast_operation = schema["$defs"]["RepoFastSearchQuery"]["properties"]["operation"]
+    legacy_operation = schema["$defs"]["RepoSearchTextQuery"]["properties"]["operation"]
+    assert "Default operation for ordinary lexical" in fast_operation["description"]
+    assert "prefer search_fast" in legacy_operation["description"]
+
     assert adapter.validate_python(
         {
             "operation": "search_fast",
