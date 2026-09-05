@@ -215,7 +215,14 @@ from .gateway_models import (
 )
 
 
-mcp = FastMCP("Soma")
+mcp = FastMCP(
+    "Soma",
+    instructions=(
+        "Before substantive work in any repository bound through Soma, read that "
+        "repository's current AGENTS.md and follow it. Re-read it after switching "
+        "repositories and on fresh/continued chat re-entry."
+    ),
+)
 _PROCESS_CAPABILITY_METADATA = capability_metadata(PATCH_OPERATION_SCHEMA)
 _original_mcp_tool = mcp.tool
 
