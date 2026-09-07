@@ -374,5 +374,6 @@ When the user corrects a recurring project rule, update `AGENTS.md` so future co
 
 Current owner-specific hard boundaries:
 - Any Codex CLI, App Server, API, model generation, or Codex subagent usage requires a fresh explicit owner request. Never infer authorization from roadmap work.
+- `run_start(operation="powershell")` is a legacy-named executable-profile launcher: `argv` is passed directly to the executable selected by `profile_id`. Never put a child executable such as `wsl`, `python`, `git`, or `cmd` in `argv[0]` while selecting the `powershell`/`pwsh.exe` profile. Prefer a dedicated direct executable profile such as `profile_id="wsl"` for WSL-heavy lanes. Obvious PowerShell child-command misuse must be rejected before durable Run creation, repository locking, or CUDA queue acquisition.
 - `docs/CANONICAL_PROJECT_MEMORY_CONTRACT.md` is owner work and must not be modified, staged, deleted, renamed, or committed without explicit future authorization.
 - Preserve unrelated concurrent owner files and never include them in a roadmap commit.

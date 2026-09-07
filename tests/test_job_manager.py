@@ -2455,6 +2455,32 @@ def _configure_f1_powershell(manager: JobManager, tmp_path: Path) -> str:
     return str(tmp_path / "repo")
 
 
+def test_powershell_child_command_guard_runs_before_cuda_enqueue(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = make_manager(tmp_path, monkeypatch)
+    working_directory = _configure_f1_powershell(manager, tmp_path)
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"powershell-fixture")
+    manager.config.executable_profiles["powershell"] = manager.config.executable_profiles[
+        "powershell"
+    ].model_copy(update={"executable_path": str(executable)})
+
+    def reject_enqueue(*_args, **_kwargs) -> None:
+        pytest.fail("CUDA queue must not be touched for semantically invalid argv")
+
+    monkeypatch.setattr(manager.cuda_queue, "enqueue", reject_enqueue)
+
+    with pytest.raises(ValueError, match="looks like a child command"):
+        manager.start_executable_profile(
+            "sample",
+            "powershell",
+            ["wsl", "bash", "-lc", "echo ok"],
+            working_directory=working_directory,
+            resource_class="cuda_exclusive",
+        )
+
+
 def test_f1_keyed_local_run_replays_and_changed_effect_conflicts(
     tmp_path: Path, monkeypatch
 ) -> None:

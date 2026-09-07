@@ -160,6 +160,35 @@ executable_profiles:
 
 Executable profiles preserve executable identity and I/O behavior. They are not intended to become a second user-permission system.
 
+`run_start(operation="powershell")` is a legacy-named executable-profile launch surface: `argv` is passed directly to the executable selected by `profile_id`. Do not put a child executable such as `wsl` in `argv[0]` while selecting the `powershell` profile. For WSL-heavy projects, configure a direct profile instead:
+
+```yaml
+executable_profiles:
+  wsl:
+    profile_id: "wsl"
+    enabled: true
+    executable_path: "C:/Windows/System32/wsl.exe"
+    target: "local"
+    working_directory_policy: "arbitrary"
+    environment_policy: "arbitrary"
+    stdin_mode: "bytes"
+    stdout_mode: "protected_artifact"
+    stderr_mode: "protected_artifact"
+    timeout_seconds: 600
+    allow_no_timeout: true
+    cancellation_policy: "process_tree"
+    public_output_max_bytes: 100000
+    preserve_protected_artifacts: true
+    autonomy_profile: "permissive"
+    unrestricted_argv: true
+    unrestricted_paths: true
+    unrestricted_environment: true
+    unrestricted_network: true
+    unrestricted_child_processes: true
+```
+
+Then `profile_id="wsl"` with `argv=["bash", "-lc", "..."]` launches `wsl.exe bash -lc ...` directly with `shell=False`; no PowerShell quoting layer is involved.
+
 ### Repository discovery
 
 Explicit `repos:` entries always win. Unknown repository names can also be discovered from direct sibling Git repositories under approved roots inferred from configured repository parents.

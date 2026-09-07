@@ -1,11 +1,43 @@
 from __future__ import annotations
 
 from base64 import b64encode
+from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path, PureWindowsPath
-from typing import Mapping, Sequence
 
 from .config import AppConfig, ExecutableProfileConfig
+
+_POWERSHELL_EXECUTABLE_NAMES = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+
+
+def _validate_profile_argv_semantics(
+    profile: ExecutableProfileConfig,
+    executable_identity: Mapping[str, object],
+    argv: Sequence[str],
+) -> None:
+    """Reject the common child-command-as-pwsh-argv footgun before launch admission."""
+    executable_path = str(
+        executable_identity.get("executable_path") or profile.executable_path
+    )
+    executable_name = PureWindowsPath(executable_path).name.lower()
+    if executable_name not in _POWERSHELL_EXECUTABLE_NAMES or not argv:
+        return
+
+    first = str(argv[0]).strip()
+    if not first or first.startswith("-"):
+        return
+    if (
+        PureWindowsPath(first).suffix.lower() == ".ps1"
+        or Path(first).suffix.lower() == ".ps1"
+    ):
+        return
+
+    raise ValueError(
+        f"Executable profile '{profile.profile_id}' launches {executable_name} directly; "
+        f"argv[0]={first!r} looks like a child command, not PowerShell CLI syntax. "
+        "Use a PowerShell switch such as -Command/-File, or select a direct executable "
+        "profile (for example profile_id='wsl') so argv is passed to that executable."
+    )
 
 
 def resolve_executable_profile(
@@ -159,6 +191,7 @@ def build_local_executable_run_request(
     exact_argv = [str(argument) for argument in argv]
     if any("\x00" in argument for argument in exact_argv):
         raise ValueError("Executable argv values must not contain NUL")
+    _validate_profile_argv_semantics(profile, executable_identity, exact_argv)
     if stdin_text is not None and stdin_bytes is not None:
         raise ValueError("Specify either stdin_text or stdin_bytes, not both")
     selected_stdin_text = stdin_text

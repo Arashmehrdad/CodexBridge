@@ -169,6 +169,50 @@ def test_build_local_executable_run_request_preserves_exact_argv_and_binary_inpu
     )
 
 
+def test_build_local_executable_run_request_rejects_child_command_as_pwsh_argv(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "pwsh.exe"
+    executable.write_bytes(b"binary")
+    profile = ExecutableProfileConfig(
+        profile_id="powershell",
+        enabled=True,
+        executable_path=str(executable),
+        unrestricted_argv=True,
+    )
+
+    with pytest.raises(ValueError, match="looks like a child command"):
+        build_local_executable_run_request(
+            make_config(tmp_path, profile),
+            "powershell",
+            ["wsl", "bash", "-lc", "echo ok"],
+        )
+
+
+def test_build_local_executable_run_request_allows_direct_wsl_profile(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "wsl.exe"
+    executable.write_bytes(b"binary")
+    profile = ExecutableProfileConfig(
+        profile_id="wsl",
+        enabled=True,
+        executable_path=str(executable),
+        unrestricted_argv=True,
+    )
+    argv = ["bash", "-lc", "echo ok"]
+
+    request = build_local_executable_run_request(
+        make_config(tmp_path, profile),
+        "wsl",
+        argv,
+    )
+
+    assert request["profile_id"] == "wsl"
+    assert request["argv"] == argv
+    assert request["executable_identity"]["executable_path"] == str(executable.resolve())
+
+
 def test_build_local_executable_run_request_encodes_text_for_byte_profile(
     tmp_path: Path,
 ) -> None:
