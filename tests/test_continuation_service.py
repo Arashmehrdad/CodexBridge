@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import pytest
 
 from soma.continuations import ContinuationService, ContinuationStore
+from soma.continuations.service import CONTINUATION_EFFECT_PAGE_MAX_BYTES
 from soma.run_store import RunStore
 from soma.tasks.models import make_task_id
 from soma.tasks.store import TaskStore
@@ -302,6 +304,63 @@ def test_c2_many_effects_are_bounded_and_cursor_pages_have_no_duplicates(
         cursor = page["next_cursor"]
     assert page_sizes == [5, 5, 2]
     assert seen == expected_ids
+
+
+def test_c2_effect_history_is_byte_bounded_and_cursor_preserves_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    run_store = RunStore(runs_dir)
+    store = ContinuationStore(runs_dir)
+    continuation, revision, _ = _open(store)
+    for index in range(6):
+        run_id = f"20260815T14{index:02d}00Z_executable_profile_{index:08x}"
+        _create_run(run_store, runs_dir, run_id)
+        store.insert_effect_link(
+            continuation_context_ref=revision.contract_revision_id,
+            effect_kind="run",
+            effect_id=run_id,
+            controller_request_id=f"c2-byte-link-{index}",
+        )
+    service = ContinuationService(runs_dir, continuation_store=store)
+
+    def oversized_projection(link):
+        return {
+            "link_id": link.link_id,
+            "effect_kind": link.effect_kind.value,
+            "effect_id": link.effect_id,
+            "origin_contract_revision_id": link.contract_revision_id,
+            "linked_at": link.created_at,
+            "canonical": {
+                "projection_status": "available",
+                "payload": "x" * 20_000,
+            },
+        }
+
+    monkeypatch.setattr(service, "_effect_projection", oversized_projection)
+
+    first = service.effect_history(continuation.continuation_id, limit=6)
+    assert len(json.dumps(first, ensure_ascii=False).encode("utf-8")) <= (
+        CONTINUATION_EFFECT_PAGE_MAX_BYTES
+    )
+    assert 1 <= first["count"] < 6
+    assert first["byte_truncated"] is True
+    assert first["has_more"] is True
+    assert first["next_cursor"]
+
+    second = service.effect_history(
+        continuation.continuation_id, limit=6, cursor=first["next_cursor"]
+    )
+    first_ids = {item["link_id"] for item in first["items"]}
+    second_ids = {item["link_id"] for item in second["items"]}
+    assert first_ids.isdisjoint(second_ids)
+
+    resumed = service.resume(continuation.continuation_id, effect_limit=6)
+    assert len(
+        json.dumps(resumed["associated_effects"], ensure_ascii=False).encode("utf-8")
+    ) <= CONTINUATION_EFFECT_PAGE_MAX_BYTES
+    assert resumed["retrieval"]["effects"]["has_more"] is True
+    assert resumed["retrieval"]["effects"]["next_cursor"]
 
 
 def test_c2_concurrent_handoffs_are_both_preserved_in_history(tmp_path: Path) -> None:

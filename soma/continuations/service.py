@@ -28,6 +28,7 @@ CONTINUATION_RESUME_PROJECTION_VERSION: Final[str] = "continuation.resume.v1"
 CONTINUATION_HISTORY_CURSOR_VERSION: Final[str] = "continuation.history.cursor.v1"
 CONTINUATION_HISTORY_DEFAULT_LIMIT: Final[int] = 20
 CONTINUATION_HISTORY_MAX_LIMIT: Final[int] = 100
+CONTINUATION_EFFECT_PAGE_MAX_BYTES: Final[int] = 48 * 1024
 
 
 def _bounded_limit(limit: int) -> int:
@@ -96,6 +97,57 @@ def _decode_cursor(
 
 def _history_ref(continuation_id: str, collection: str) -> str:
     return f"continuation:{continuation_id}:{collection}"
+
+
+def _serialized_bytes(value: Any) -> int:
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    )
+
+
+def _bound_effect_page(
+    page: dict[str, Any], *, continuation_id: str
+) -> dict[str, Any]:
+    """Fit an effect page to the public transport budget without losing cursor progress."""
+    original_items = list(page.get("items", []))
+    selected = list(original_items)
+
+    def candidate(items: list[dict[str, Any]]) -> dict[str, Any]:
+        result = dict(page)
+        result["items"] = items
+        result["count"] = len(items)
+        trimmed = len(items) < len(original_items)
+        result["byte_budget_bytes"] = CONTINUATION_EFFECT_PAGE_MAX_BYTES
+        result["byte_truncated"] = trimmed
+        if trimmed:
+            result["has_more"] = True
+            if items:
+                last = items[-1]
+                result["next_cursor"] = _encode_cursor(
+                    continuation_id=continuation_id,
+                    collection="effects",
+                    position={
+                        "before_created_at": last["linked_at"],
+                        "before_link_id": last["link_id"],
+                    },
+                )
+            else:
+                result["next_cursor"] = ""
+        return result
+
+    while len(selected) > 1:
+        bounded = candidate(selected)
+        if _serialized_bytes(bounded) <= CONTINUATION_EFFECT_PAGE_MAX_BYTES:
+            return bounded
+        selected.pop()
+
+    bounded = candidate(selected)
+    bounded["single_item_exceeds_byte_budget"] = (
+        _serialized_bytes(bounded) > CONTINUATION_EFFECT_PAGE_MAX_BYTES
+    )
+    return bounded
 
 
 class ContinuationService:
@@ -394,7 +446,7 @@ class ContinuationService:
                     "before_link_id": last.link_id,
                 },
             )
-        return {
+        page = {
             "history_ref": _history_ref(continuation_id, "effects"),
             "items": [self._effect_projection(link) for link in links],
             "count": len(links),
@@ -404,6 +456,7 @@ class ContinuationService:
             "has_more": has_more,
             "next_cursor": next_cursor,
         }
+        return _bound_effect_page(page, continuation_id=continuation_id)
 
     @staticmethod
     def _handoff_projection(handoff: ContinuationHandoffRecord) -> dict[str, Any]:
