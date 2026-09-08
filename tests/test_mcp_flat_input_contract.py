@@ -68,7 +68,7 @@ def _discovered_actions() -> dict[str, dict[str, Any]]:
         register_knowledge_tools(server.mcp)
         tools = await server.mcp.list_tools()
         return {
-            tool.name: tool.to_mcp_tool().model_dump(mode="json") for tool in tools
+            tool.name: tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools
         }
 
     return asyncio.run(_list())

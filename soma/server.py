@@ -24,7 +24,7 @@ from typing import Any, Callable, Literal
 from typing import Sequence
 
 from fastmcp import FastMCP
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 from uvicorn.config import LOGGING_CONFIG
 
 from .capabilities import PATCH_OPERATION_SCHEMA, capability_metadata, schema_hash, server_build_hash
@@ -295,7 +295,7 @@ def refresh_public_contract_hash() -> str:
         # Never let identity computation break startup or a response: an absent
         # field is honest, a wrong one is not.
         return _PUBLIC_CONTRACT_HASH_CACHE
-    schema_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    schema_actions = [tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools]
     descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     _PUBLIC_INPUT_SCHEMAS.clear()
     for action in schema_actions:
@@ -1453,7 +1453,7 @@ def _locked_repo_operation(
 async def list_capabilities() -> dict:
     """Read-only: return the authoritative live tool list and schema epoch."""
     tools = await mcp.list_tools()
-    actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    actions = [tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools]
     descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     result: dict[str, Any] = {
         "ok": True,
@@ -1488,7 +1488,7 @@ def _list_capabilities_sync() -> dict[str, Any]:
             "error": f"live capability discovery unavailable: {exc}",
             **_PROCESS_CAPABILITY_METADATA,
         }
-    actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in tools]
+    actions = [tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools]
     descriptor_actions = [_served_descriptor_from_tool(tool) for tool in tools]
     result = {
             "ok": True,
@@ -1546,7 +1546,7 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
             hashes[qualified_name] = current_hash
 
         for tool in tools:
-            action = tool.to_mcp_tool().model_dump(mode="json")
+            action = tool.to_mcp_tool().model_dump(mode="json", by_alias=True)
             tool_name = str(action.get("name", "")).strip()
             root = action.get("inputSchema")
             if not tool_name or not isinstance(root, dict):
@@ -1597,8 +1597,8 @@ def _live_operation_schema_hashes_sync() -> tuple[dict[str, str], str, bool, str
 
     first_hashes, first_collisions = _hashes(first_tools)
     second_hashes, second_collisions = _hashes(second_tools)
-    first_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in first_tools]
-    second_actions = [tool.to_mcp_tool().model_dump(mode="json") for tool in second_tools]
+    first_actions = [tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in first_tools]
+    second_actions = [tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in second_tools]
     second_descriptor_actions = [_served_descriptor_from_tool(tool) for tool in second_tools]
     first_input_schema_hash = _input_schema_hash_from_actions(first_actions)
     second_input_schema_hash = _input_schema_hash_from_actions(second_actions)

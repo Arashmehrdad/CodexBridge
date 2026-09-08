@@ -9,7 +9,7 @@ from soma import server
 
 def test_owner_mcp_initialization_reminds_controller_to_read_agents() -> None:
     async def _initialize() -> str | None:
-        async with Client(server.mcp) as client:
+        async with Client(server.mcp, mode="legacy") as client:
             return client.initialize_result.instructions
 
     instructions = asyncio.run(_initialize())

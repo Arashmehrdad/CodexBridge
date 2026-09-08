@@ -315,7 +315,7 @@ def test_mcp_contract_evolution_is_strict_additive_and_incumbent_compatible(
     async def scoped_tools() -> dict[str, dict[str, Any]]:
         tools = {tool.name: tool for tool in await server.mcp.list_tools()}
         return {
-            name: tools[name].to_mcp_tool().model_dump(mode="json")
+            name: tools[name].to_mcp_tool().model_dump(mode="json", by_alias=True)
             for name in ("task_query", "task_action", "run_query")
         }
 

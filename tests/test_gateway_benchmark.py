@@ -23,7 +23,7 @@ from soma.public_tool_metadata import PUBLIC_TOOL_METADATA
 def _actions() -> dict[str, dict]:
     register_knowledge_tools(server.mcp)
     tools = asyncio.run(server.mcp.list_tools())
-    return {tool.name: tool.to_mcp_tool().model_dump(mode="json") for tool in tools}
+    return {tool.name: tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools}
 
 
 def test_deterministic_gateway_surface_benchmark() -> None:

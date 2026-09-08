@@ -10,7 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from fastmcp import Client
 from fastmcp.client.auth import BearerAuth
@@ -292,8 +292,8 @@ async def _http_client(app, bearer: str):
     asgi = app.http_app(path="/mcp", stateless_http=True)
 
     def factory(headers=None, timeout=None, auth=None, **kwargs):
-        return httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=asgi),
+        return httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=asgi),
             base_url="http://worker.test",
             headers=headers,
             timeout=timeout,
@@ -307,17 +307,54 @@ async def _http_client(app, bearer: str):
         httpx_client_factory=factory,
     )
     async with asgi.router.lifespan_context(asgi):
-        async with Client(transport) as client:
+        async with httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=asgi),
+            base_url="http://worker.test",
+        ) as probe:
+            response = await probe.post(
+                "/mcp",
+                headers={
+                    "Authorization": f"Bearer {bearer}",
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "auth-probe",
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {},
+                        "clientInfo": {"name": "soma-auth-probe", "version": "1"},
+                    },
+                },
+            )
+            if response.status_code == 401:
+                response.raise_for_status()
+        async with Client(transport, mode="legacy") as client:
             yield client
 
 
 def _http_status_codes(exc: BaseException) -> set[int]:
     codes: set[int] = set()
-    if isinstance(exc, httpx.HTTPStatusError):
-        codes.add(exc.response.status_code)
-    for nested in getattr(exc, "exceptions", ()):
-        if isinstance(nested, BaseException):
-            codes.update(_http_status_codes(nested))
+    pending = [exc]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        response = getattr(current, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int):
+            codes.add(status_code)
+        pending.extend(
+            nested
+            for nested in getattr(current, "exceptions", ())
+            if isinstance(nested, BaseException)
+        )
+        for nested in (current.__cause__, current.__context__):
+            if isinstance(nested, BaseException):
+                pending.append(nested)
     return codes
 
 

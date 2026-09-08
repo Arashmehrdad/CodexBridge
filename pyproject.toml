@@ -9,7 +9,7 @@ description = "Local Windows MCP engineering control plane for ChatGPT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "fastmcp",
+  "fastmcp==4.0.3",
   "pydantic",
   "pyyaml",
 ]

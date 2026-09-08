@@ -143,7 +143,9 @@ def test_rm5_backend_projection_rejects_conflicting_semantic_labels(tmp_path: Pa
 
 def test_rm5_optional_dependency_contract_does_not_change_core_dependencies() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["project"]["dependencies"] == ["fastmcp", "pydantic", "pyyaml"]
+    assert pyproject["project"]["dependencies"] == [
+        "fastmcp==4.0.3", "pydantic", "pyyaml"
+    ]
     assert pyproject["project"]["optional-dependencies"]["research-map"] == [
         "graphiti-core==0.29.3",
         "fastembed==0.8.0",

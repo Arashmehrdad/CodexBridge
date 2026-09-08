@@ -190,7 +190,7 @@ def _input_schema_hash(actions: list[dict[str, Any]]) -> str:
 
 async def _owner_identity(owner_mcp_url: str) -> dict[str, Any]:
     transport = StreamableHttpTransport(owner_mcp_url)
-    async with Client(transport) as client:
+    async with Client(transport, mode="legacy") as client:
         tools = await client.list_tools()
     actions = [tool.model_dump(mode="json", by_alias=True) for tool in tools]
     names = sorted(str(action.get("name", "")) for action in actions)
@@ -229,7 +229,7 @@ async def _worker_call(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
     transport = StreamableHttpTransport(worker_url, auth=BearerAuth(bearer))
-    async with Client(transport) as client:
+    async with Client(transport, mode="legacy") as client:
         result = await client.call_tool(tool_name, arguments)
     payload = result.structured_content
     if not isinstance(payload, dict):
@@ -238,19 +238,30 @@ async def _worker_call(
 
 
 async def _expect_auth_denial(worker_url: str, bearer: str) -> set[int]:
-    transport = StreamableHttpTransport(worker_url, auth=BearerAuth(bearer))
-    try:
-        async with Client(transport):
-            raise ActivationError("invalid worker authentication unexpectedly connected")
-    except ActivationError:
-        raise
-    except Exception as exc:
-        codes = _http_status_codes(exc)
-        if 401 not in codes:
-            raise ActivationError(
-                f"worker authentication denial did not contain HTTP 401: {sorted(codes)}"
-            ) from exc
-        return codes
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            worker_url,
+            headers={
+                "Authorization": f"Bearer {bearer}",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": "auth-probe",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "soma-auth-probe", "version": "1"},
+                },
+            },
+        )
+    if response.status_code != 401:
+        raise ActivationError(
+            "worker authentication denial did not return HTTP 401: "
+            f"{response.status_code}"
+        )
+    return {response.status_code}
 
 
 def _journal_count(path: Path) -> int:

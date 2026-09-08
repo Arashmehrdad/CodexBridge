@@ -1037,7 +1037,7 @@ def test_task_gateways_are_discoverable_with_strict_request_unions() -> None:
     async def _list() -> dict:
         tools = {tool.name: tool for tool in await server.mcp.list_tools()}
         return {
-            name: tools[name].to_mcp_tool().model_dump(mode="json")
+            name: tools[name].to_mcp_tool().model_dump(mode="json", by_alias=True)
             for name in ("task_query", "task_action")
         }
 

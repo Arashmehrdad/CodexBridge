@@ -59,7 +59,7 @@ def test_c3_gateway_models_are_strict_discriminated_and_context_ref_is_not_auth(
 
 def test_c3_public_discovery_is_flat_and_operation_inventory_is_exact() -> None:
     tools = asyncio.run(server.mcp.list_tools())
-    by_name = {tool.name: tool.to_mcp_tool().model_dump(mode="json") for tool in tools}
+    by_name = {tool.name: tool.to_mcp_tool().model_dump(mode="json", by_alias=True) for tool in tools}
     assert "continuation_query" in by_name
     assert "continuation_action" in by_name
     assert "request" not in by_name["continuation_query"]["inputSchema"].get(
